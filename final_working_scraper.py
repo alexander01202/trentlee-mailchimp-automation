@@ -55,7 +55,7 @@ class BizBuySellScraper:
         self.recent_scrapped_listings_urls = []
 
         # Initialize CSV
-        self._initialize_csv()
+        # self._initialize_csv()
 
     def _initialize_csv(self):
         """Initialize CSV file with headers"""
