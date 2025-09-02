@@ -289,7 +289,7 @@ class MailchimpNotifier:
 
             campaign_payload['settings'].pop('template_id')
 
-            print("new campaign_payload: ", campaign_payload)
+            print(f"new campaign_payload: {campaign_payload}")
 
             response = self.mailchimp_client.campaigns.create(campaign_payload)
             campaign_id = response.get('id')
