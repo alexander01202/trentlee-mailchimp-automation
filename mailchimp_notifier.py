@@ -19,14 +19,13 @@ logger = logging.getLogger(__name__)
 class MailchimpNotifier:
     def __init__(self,
                  mailchimp_api_key: str,
-                 mongo_uri: Optional[str] = None,
                  mongo_db: str = "business-broker-las-vegas-db",
                  mongo_collection: str = "bizbuysell-data") -> None:
         self.api_key = mailchimp_api_key
         self.list_id = os.getenv("MAILCHIMP_LIST_ID")
         self.template_id = int(os.getenv("MAILCHIMP_EMAIL_TEMPLATE_ID"))
 
-        self.mongo_uri = mongo_uri or "mongodb+srv://trentlee702:pHHJETqffYMINqbN@bizbuysell-cluster.homaclh.mongodb.net/"
+        self.mongo_uri = os.getenv('MONGO_DB_URI')
         self.mongo_db = mongo_db
         self.mongo_collection = mongo_collection
 
@@ -199,15 +198,15 @@ class MailchimpNotifier:
                 return False
 
         # Location matching (states and cities)
-        # if subscriber_states:
-        #     listing_state = set(listing.get('state', '').lower())
-        #     if not subscriber_states.intersection(listing_state):
-        #         return False
-        #
-        # if subscriber_cities:
-        #     listing_city = set(listing.get('city', '').lower())
-        #     if not subscriber_cities.intersection(listing_city):
-        #         return False
+        if subscriber_states:
+            listing_state = set(listing.get('state', '').lower())
+            if not subscriber_states.intersection(listing_state):
+                return False
+
+        if subscriber_cities:
+            listing_city = set(listing.get('city', '').lower())
+            if not subscriber_cities.intersection(listing_city):
+                return False
 
         return True
 
@@ -287,8 +286,6 @@ class MailchimpNotifier:
             # Step B: replace placeholder
             updated_html = template_html.replace("*|TEMP_HTML|*", listings_html)
             self.mailchimp_client.campaigns.remove(campaign_id)
-
-            print("updated_html: ", updated_html)
 
             campaign_payload['settings'].pop('template_id')
 
@@ -390,10 +387,10 @@ class MailchimpNotifier:
                 groups_processed += 1
 
         # Optional cleanup of segments
-        # if cleanup_segments:
-        #     logger.info("Cleaning up segments...")
-        #     for segment_id in created_segments:
-        #         self._cleanup_segment(segment_id)
+        if cleanup_segments:
+            logger.info("Cleaning up segments...")
+            for segment_id in created_segments:
+                self._cleanup_segment(segment_id)
 
         logger.info(f"Sent emails to {emails_sent} subscribers across {groups_processed} segments")
         return {

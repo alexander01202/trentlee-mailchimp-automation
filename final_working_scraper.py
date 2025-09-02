@@ -9,13 +9,12 @@ import json
 import logging
 import os
 from fake_useragent import UserAgent
-import random
+import requests
 import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 try:
-    import requests
 
     REQUESTS_AVAILABLE = True
 except ImportError:
@@ -55,7 +54,7 @@ class BizBuySellScraper:
         self.recent_scrapped_listings_urls = []
 
         # Initialize CSV
-        # self._initialize_csv()
+        self._initialize_csv()
 
     def _initialize_csv(self):
         """Initialize CSV file with headers"""
