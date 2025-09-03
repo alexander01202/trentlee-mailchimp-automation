@@ -17,6 +17,10 @@ from typing import Dict, List, Optional
 from bs4 import BeautifulSoup
 import requests
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 class ListingURLScraper:
     """Scrapes listing URLs from BizBuySell's main listing pages"""
@@ -40,23 +44,35 @@ class ListingURLScraper:
         """Try to scrape real listing URLs from BizBuySell"""
 
         listings = []
-
         PAGE_NUM = 1
 
         while PAGE_NUM < 2:
             try:
                 self.logger.info(f"Scraping page {PAGE_NUM}...")
 
-                response = None
                 session = requests.Session()
-                # response = requests.get(
-                #     "https://proxy.webshare.io/api/v2/proxy/list/?mode=direct&page=1&page_size=25",
-                #     headers={"Authorization": "Token p4ssnh9wazu1lvg9ajhc024lr260oj4iwo7xh1t7"}
-                # )
-                #
-                # proxy_data = response.json()
+                response = requests.get(
+                    "https://proxy.webshare.io/api/v2/proxy/list/?mode=direct&page=1&page_size=25",
+                    headers={"Authorization": f"Token {os.getenv('WEBSHARE_TOKEN')}"}
+                )
+
+                proxy_data = response.json()
                 while True:
                     try:
+                        # Extract a random proxy from the list
+                        proxy_list = proxy_data.get("results", [])
+                        if not proxy_list:
+                            raise RuntimeError("No proxies returned from Webshare API")
+
+                        proxy = random.choice(proxy_list)
+                        proxy_url = f"http://{proxy['username']}:{proxy['password']}@{proxy['proxy_address']}:{proxy['port']}"
+
+                        # Apply proxy to session
+                        session.proxies.update({
+                            "http": proxy_url,
+                            "https": proxy_url
+                        })
+
                         session.headers.update({
                             'User-Agent': self.ua.chrome
                         })
