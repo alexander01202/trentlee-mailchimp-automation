@@ -387,10 +387,10 @@ class MailchimpNotifier:
                 groups_processed += 1
 
         # Optional cleanup of segments
-        if cleanup_segments:
-            logger.info("Cleaning up segments...")
-            for segment_id in created_segments:
-                self._cleanup_segment(segment_id)
+        # if cleanup_segments:
+        #     logger.info("Cleaning up segments...")
+        #     for segment_id in created_segments:
+        #         self._cleanup_segment(segment_id)
 
         logger.info(f"Sent emails to {emails_sent} subscribers across {groups_processed} segments")
         return {
