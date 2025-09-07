@@ -20,7 +20,8 @@ class MailchimpNotifier:
     def __init__(self,
                  mailchimp_api_key: str,
                  mongo_db: str = "business-broker-las-vegas-db",
-                 mongo_collection: str = "bizbuysell-data") -> None:
+                 mongo_collection: str = "bizbuysell-data",
+                 subscribers_collection: str = "users") -> None:
         self.api_key = mailchimp_api_key
         self.list_id = os.getenv("MAILCHIMP_LIST_ID")
         self.template_id = int(os.getenv("MAILCHIMP_EMAIL_TEMPLATE_ID"))
@@ -28,6 +29,12 @@ class MailchimpNotifier:
         self.mongo_uri = os.getenv('MONGO_DB_URI')
         self.mongo_db = mongo_db
         self.mongo_collection = mongo_collection
+        self.subscribers_collection = subscribers_collection
+
+        # Initialize MongoDB client
+        self.mongo_client = MongoClient(self.mongo_uri)
+        self.db = self.mongo_client[self.mongo_db]
+        self.subscribers_db = self.db[self.subscribers_collection]
 
         self.mailchimp_client = MailchimpMarketing.Client()
         self.__initialize_mailchimp_client()
@@ -116,8 +123,18 @@ class MailchimpNotifier:
     # -----------------------------
     # Data fetchers
     # -----------------------------
+    def fetch_subscribers_from_mongo(self) -> List[Dict]:
+        """Fetch all subscribers from MongoDB collection."""
+        try:
+            subscribers = list(self.subscribers_db.find({}))
+            logger.info(f"Fetched {len(subscribers)} subscribers from MongoDB")
+            return subscribers
+        except Exception as error:
+            logger.error(f"Error fetching subscribers from MongoDB: {error}")
+            return []
+
     def fetch_subscribers(self):
-        """Fetch all subscribers from the Mailchimp list."""
+        """Fetch all subscribers from the Mailchimp list (kept for backward compatibility)."""
         try:
             return self.mailchimp_client.lists.get_list_members_info(self.list_id, count=1000)
         except ApiClientError as error:
@@ -146,25 +163,50 @@ class MailchimpNotifier:
         return [item.strip() for item in str(field_value).replace('\xa0', '').split(',')
                 if item and item.strip()]
 
-    def match_subscribers_to_listings(self, subs: List[Dict], listings: List[Dict]) -> Dict[str, List[Dict]]:
-        """Match subscribers to listings based on their preferences."""
+    def match_subscribers_to_listings_mongo(self, subscribers: List[Dict], listings: List[Dict]) -> Dict[str, List[Dict]]:
+        """Match subscribers from MongoDB to listings based on their preferences."""
         matches = {}
 
-        for sub in subs:
-            email = sub.get('email_address')
+        for subscriber in subscribers:
+            email = subscriber.get('email_address') or subscriber.get('email')
             if not email:
                 continue
 
-            merge_fields = sub.get('merge_fields', {})
-            if not merge_fields:
+            # Get subscriber preferences directly from MongoDB document
+            min_price = subscriber.get('DPR_MIN')
+            max_price = subscriber.get('DPR_MAX')
+            subscriber_industries = set(i.lower() for i in self._normalize_list_field(subscriber.get('INDUSTRIES')))
+            subscriber_states = set(i.lower() for i in self._normalize_list_field(subscriber.get('STATES')))
+            subscriber_cities = set(i.lower() for i in self._normalize_list_field(subscriber.get('CITIES')))
+
+            # Check each listing
+            matched_listings = []
+            for listing in listings:
+                if self._listing_matches_subscriber(listing, min_price, max_price,
+                                                    subscriber_industries, subscriber_states, subscriber_cities):
+                    matched_listings.append(listing)
+
+            if matched_listings:
+                matches[email] = matched_listings
+
+        return matches
+
+    def match_subscribers_to_listings(self, subs: List[Dict], listings: List[Dict]) -> Dict[str, List[Dict]]:
+        """Match subscribers to listings based on their preferences"""
+        matches = {}
+
+        for sub in subs:
+            email = sub.get('email')
+            if not email:
                 continue
 
             # Get subscriber preferences
-            min_price = merge_fields.get('DPR_MIN')
-            max_price = merge_fields.get('DPR_MAX')
-            subscriber_industries = set(i.lower() for i in self._normalize_list_field(merge_fields.get('INDUSTRIES')))
-            subscriber_states = set(i.lower() for i in self._normalize_list_field(merge_fields.get('STATES')))
-            subscriber_cities = set(i.lower() for i in self._normalize_list_field(merge_fields.get('CITIES')))
+            min_price = sub.get('price_min')
+            max_price = sub.get('price_max')
+
+            subscriber_industries = set(i.lower() for i in self._normalize_list_field(sub.get('industries')))
+            subscriber_states = set(i.lower() for i in self._normalize_list_field(sub.get('states')))
+            subscriber_cities = set(i.lower() for i in self._normalize_list_field(sub.get('cities')))
 
             # Check each listing
             matched_listings = []
@@ -338,7 +380,8 @@ class MailchimpNotifier:
                subject: str = "New BizBuySell Listings",
                from_name: str = "BizBuySell Alerts",
                reply_to: str = "trent@fcbb.com",
-               cleanup_segments: bool = True) -> Dict[str, int]:
+               cleanup_segments: bool = True,
+               use_mongo_subscribers: bool = True) -> Dict[str, int]:
         """Send notifications by grouping subscribers with identical matches into segments."""
         if not self.api_key:
             raise RuntimeError("MAILCHIMP_API_KEY is not set.")
@@ -348,11 +391,17 @@ class MailchimpNotifier:
             raise RuntimeError("MAILCHIMP_LIST_ID is not set.")
 
         # Get subscribers and find matches
-        subscribers_response = self.fetch_subscribers()
-        matches = self.match_subscribers_to_listings(
-            subscribers_response.get('members', []),
-            filtered_listing_details
-        )
+        if use_mongo_subscribers:
+            # Use MongoDB subscribers
+            subscribers = self.fetch_subscribers_from_mongo()
+            matches = self.match_subscribers_to_listings_mongo(subscribers, filtered_listing_details)
+        else:
+            # Use Mailchimp subscribers (fallback)
+            subscribers_response = self.fetch_subscribers()
+            matches = self.match_subscribers_to_listings(
+                subscribers_response.get('members', []),
+                filtered_listing_details
+            )
 
         if not matches:
             logger.info("No matched subscribers for recent listings.")
@@ -406,15 +455,16 @@ def notify_subscribers(filtered_urls_details: List = [],
                        list_id: str = None,
                        subject: str = "New BizBuySell Listings",
                        from_name: str = "BizBuySell Alerts",
-                       reply_to: str = "trent@fcbb.com") -> Dict[str, int]:
+                       reply_to: str = "trent@fcbb.com",
+                       use_mongo_subscribers: bool = True) -> Dict[str, int]:
     notifier = MailchimpNotifier(os.getenv("MAILCHIMP_API_KEY"))
     return notifier.notify(filtered_urls_details,
                            list_id=list_id,
                            subject=subject,
                            from_name=from_name,
-                           reply_to=reply_to)
+                           reply_to=reply_to,
+                           use_mongo_subscribers=use_mongo_subscribers)
 
 
 if __name__ == "__main__":
     notify_subscribers(list_id="7881b0503b")
-
