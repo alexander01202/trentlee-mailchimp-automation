@@ -168,16 +168,16 @@ class MailchimpNotifier:
         matches = {}
 
         for subscriber in subscribers:
-            email = subscriber.get('email_address') or subscriber.get('email')
+            email = subscriber.get('email')
             if not email:
                 continue
 
             # Get subscriber preferences directly from MongoDB document
-            min_price = subscriber.get('DPR_MIN')
-            max_price = subscriber.get('DPR_MAX')
-            subscriber_industries = set(i.lower() for i in self._normalize_list_field(subscriber.get('INDUSTRIES')))
-            subscriber_states = set(i.lower() for i in self._normalize_list_field(subscriber.get('STATES')))
-            subscriber_cities = set(i.lower() for i in self._normalize_list_field(subscriber.get('CITIES')))
+            min_price = subscriber.get('price_min')
+            max_price = subscriber.get('price_max')
+            subscriber_industries = set(i.lower() for i in self._normalize_list_field(subscriber.get('industries')))
+            subscriber_states = set(i.lower() for i in self._normalize_list_field(subscriber.get('state')))
+            subscriber_cities = set(i.lower() for i in self._normalize_list_field(subscriber.get('city')))
 
             # Check each listing
             matched_listings = []
@@ -391,17 +391,9 @@ class MailchimpNotifier:
             raise RuntimeError("MAILCHIMP_LIST_ID is not set.")
 
         # Get subscribers and find matches
-        if use_mongo_subscribers:
-            # Use MongoDB subscribers
-            subscribers = self.fetch_subscribers_from_mongo()
-            matches = self.match_subscribers_to_listings_mongo(subscribers, filtered_listing_details)
-        else:
-            # Use Mailchimp subscribers (fallback)
-            subscribers_response = self.fetch_subscribers()
-            matches = self.match_subscribers_to_listings(
-                subscribers_response.get('members', []),
-                filtered_listing_details
-            )
+
+        subscribers = self.fetch_subscribers_from_mongo()
+        matches = self.match_subscribers_to_listings_mongo(subscribers, filtered_listing_details)
 
         if not matches:
             logger.info("No matched subscribers for recent listings.")
