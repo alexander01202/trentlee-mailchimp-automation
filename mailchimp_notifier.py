@@ -223,34 +223,49 @@ class MailchimpNotifier:
     def _listing_matches_subscriber(self, listing: Dict, min_price: Optional[float], max_price: Optional[float],
                                     subscriber_industries: set, subscriber_states: set, subscriber_cities: set) -> bool:
         """Check if a listing matches subscriber criteria."""
-        # Price matching
-        price = self._normalize_price(listing.get('asking_price'))
-        if (min_price is not None and price is not None) and (price < min_price):
+        try:
+            # Price matching
+            price = self._normalize_price(listing.get('asking_price'))
+            logger.info('STARTING LISTING MATCHING...')
+            logger.info(f"PRICE: {price}")
+            logger.info(f"SUB MIN PRICE: {min_price}")
+            logger.info(f"SUB MAX PRICE: {max_price}")
+
+            if (min_price is None and (price is None)) and (int(price) >= int(min_price)):
+                return False
+            if (max_price is None and price is None) and (int(price) <= int(max_price)):
+                return False
+
+            # Industry matching
+            if subscriber_industries:
+                listing_categories = listing.get('category') or []
+
+                logger.info(f"LISTING CATEGORIES: {listing_categories}")
+                if not isinstance(listing_categories, list):
+                    listing_categories = [listing_categories]
+                listing_industries = set(str(cat).lower().strip() for cat in listing_categories if cat)
+                if not subscriber_industries.intersection(listing_industries):
+                    return False
+
+            logger.info(f"SUBSCRIBER STATES: {subscriber_states}")
+            # Location matching (states and cities)
+            if subscriber_states:
+                listing_state = {listing.get('state', '').lower()}
+                logger.info(f"LISTING STATES: {listing_state}")
+                if not subscriber_states.intersection(listing_state):
+                    return False
+
+            logger.info(f"SUBSCRIBER CITIES: {subscriber_cities}")
+            if subscriber_cities:
+                listing_city = {listing.get('city', '').lower()}
+                if not subscriber_cities.intersection(listing_city):
+                    return False
+                logger.info(f"LISTING CITIES: {listing_city}")
+
+            return True
+        except Exception as err:
+            logger.error(f"LISTING MATCHING ERROR: {err}")
             return False
-        if (max_price is not None and price is not None) and (price > max_price):
-            return False
-
-        # Industry matching
-        if subscriber_industries:
-            listing_categories = listing.get('category') or []
-            if not isinstance(listing_categories, list):
-                listing_categories = [listing_categories]
-            listing_industries = set(str(cat).lower().strip() for cat in listing_categories if cat)
-            if not subscriber_industries.intersection(listing_industries):
-                return False
-
-        # Location matching (states and cities)
-        if subscriber_states:
-            listing_state = set(listing.get('state', '').lower())
-            if not subscriber_states.intersection(listing_state):
-                return False
-
-        if subscriber_cities:
-            listing_city = set(listing.get('city', '').lower())
-            if not subscriber_cities.intersection(listing_city):
-                return False
-
-        return True
 
     # -----------------------------
     # Grouping and Segment Management
